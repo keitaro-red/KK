@@ -24,3 +24,23 @@ async def call_llm(
     adapter = select_model(config.DEFAULT_MODEL)
     reply = await adapter.call(data.query)
     return ChatCallResponse(response=reply)
+
+from fastapi.responses import StreamingResponse
+from kk.utils.sse_utils import format_sse
+
+@chat.post("/stream",tags=["stream"])
+async def stream_llm(
+    data:ChatCallRequest,
+    user:User = Depends(get_required_user),
+):
+    """流式调用LLM，逐个token返回"""
+    async def event_generator():
+        adapter = select_model(config.DEFAULT_MODEL)
+        async for token in adapter.stream(data.query):
+            yield format_sse({"content":token},"message")
+        yield format_sse({"content":""},"done")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )

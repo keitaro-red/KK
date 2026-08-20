@@ -23,6 +23,12 @@ class LangChainChatAdapter:
             raise Exception(
                 f"模型调用失败：{e}，URL：{self.base_url}，Model：{self.model_name}")
 
+    async def stream(self, message: str):
+        """流式调用"""
+        messages = [{"role": "user", "content": message}]
+        async for chunk in self.model.astream(messages):
+            if chunk.content:
+                yield chunk.content
 
 
 def select_model(model_spec: str) -> LangChainChatAdapter:
