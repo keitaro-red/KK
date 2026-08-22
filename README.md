@@ -6,6 +6,7 @@
 
 - ✅ 用户注册 / 登录（JWT + argon2）
 - ✅ LLM 对话（LangChain + 硅基流动 SiliconFlow，默认 DeepSeek）
+- ✅ 对话持久化
 
 
 ## 技术栈
