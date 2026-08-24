@@ -10,6 +10,7 @@ services:
       - ./backend/server:/app/server
       - ./backend/package:/app/package
       - ./.env:/app/.env
+      - ./backend/scripts:/app/scripts
     depends_on:
       postgres:
         condition: service_healthy
