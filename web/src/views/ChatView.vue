@@ -107,7 +107,7 @@ async function handleSend() {
     const body = { query: text }
     if (currentThreadId.value) body.thread_id = currentThreadId.value;
     try {
-        const response = await fetch('/api/chat/stream', {
+        const response = await fetch('/api/agent/runs', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
