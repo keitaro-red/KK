@@ -7,6 +7,9 @@ def resolve_runtime_tools(context)->list:
     - None:加载全部
     - [..]:只加载列表里的工具
     """
+    import kk.agents.toolkits.buildin.tools         # noqa: F401
+    import kk.agents.toolkits.filesystem.tools      # noqa: F401
+
     all_tools = get_all_tool_instances()
     by_name={tool.name:tool for tool in all_tools}
 
