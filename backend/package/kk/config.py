@@ -8,6 +8,7 @@ load_dotenv("/app/.env")
 class Config:
     """KK 全局配置"""
     POSTGRES_URL: str = os.getenv("POSTGRES_URL", "")
+    REDIS_URL:str = os.getenv("REDIS_URL","redis://redis:6379/0")
     KK_ENV: str = os.getenv("KK_ENV", "development")
     WORKSPACE_DIR:str=os.getenv("KKMAIN_WORKSPACE","/app/data/workspace")
 

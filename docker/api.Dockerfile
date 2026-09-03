@@ -14,7 +14,9 @@ RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.li
 COPY backend/pyproject.toml /app/pyproject.toml
 COPY backend/.python-version /app/.python-version
 COPY backend/package /app/package
-ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+
 
 RUN uv sync --no-dev
 
