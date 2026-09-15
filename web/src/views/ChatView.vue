@@ -20,12 +20,16 @@
                 <div v-for="(msg, i) in messages" :key=i :class="['message', msg.role]">
                     {{ msg.content }}
                 </div>
-                <div v-if="loading" class="message assistant">思考中...</div>
+                <div v-if="loading" class="message assistant">{{ runStatus == 'cancel_requested' ? '取消中...' : '思考中...'
+                }}</div>
             </div>
             <div class="chat-input">
                 <input v-model="input" type="text" placeholder="输入信息，回车发送" @keyup.enter="handleSend">
-                    <button :disabled="loading" @click="handleSend">
-                        {{ loading ? '发送中...' : '发送' }}
+                    <button v-if="!loading" @click="handleSend">
+                        发送
+                    </button>
+                    <button v-else @click="handleCancel">
+                        取消
                     </button>
             </div>
         </div>
@@ -38,13 +42,16 @@ import { useRouter } from 'vue-router';
 import { useUserStore } from '../stores/user'
 import { apiGet, apiPost } from '../apis/base'
 
+
 const router = useRouter()
 const userStore = useUserStore()
-const conversations = ref([])
-const input = ref('')
-const loading = ref(false)
-const messages = ref([])
-const currentThreadId = ref(null)
+const conversations = ref([])       // 用户对话列表
+const input = ref('')       // 输入内容
+const loading = ref(false)      // 加载
+const messages = ref([])    // 消息列表
+const currentThreadId = ref(null)       // 对话线程id
+const currentRunId = ref(null)       //当前在跑的run的id
+const runStatus = ref('')       //运行状态
 
 // const messages = ref([
 //     { role: 'user', content: '你好，介绍一下你自己\n可以吗' },
@@ -100,14 +107,20 @@ async function handleSend() {
 
     messages.value.push({ role: 'user', content: text })
     messages.value.push({ role: 'assistant', content: '' })
+    const lastMessage = messages.value[messages.value.length - 1]        // 记下带填充的信息
     input.value = ''
     loading.value = true
+    runStatus.value = 'pending'
 
     // 发请求
-    const body = { query: text }
-    if (currentThreadId.value) body.thread_id = currentThreadId.value;
+
+
     try {
-        const response = await fetch('/api/agent/runs', {
+        // 创建run POST秒回 {run_id, thread_id , status }
+        const body = { query: text }
+        if (currentThreadId.value) body.thread_id = currentThreadId.value;
+
+        const createResp = await fetch('/api/agent/runs', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -116,44 +129,71 @@ async function handleSend() {
             body: JSON.stringify(body),
         })
 
-        if (!response.ok) {
-            const err = await response.json()
-            throw new Error(err.detail || `请求失败：${response.status}`)
+        if (!createResp.ok) {
+            const err = await createResp.json()
+            throw new Error(err.detail || `请求失败：${createResp.status}`)
         }
+        const created = await createResp.json()
+        currentRunId.value = created.run_id
+        if (created.thread_id)
+            currentThreadId.value = created.thread_id;
 
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        const lastMessage = messages.value[messages.value.length - 1]
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break;
-            // 按空行切事件，最后一段返回buffer等补全
-            buffer += decoder.decode(value, { stream: true })
-            const parts = buffer.split('\n\n')
-            buffer = parts.pop()
-
-            for (const part of parts) {
-                // 获取data字段
-                const dataLine = part.split('\n').find((l) => l.startsWith('data: '))
-                if (!dataLine) continue;
-                // 去掉前面的data冒号空格6个字符
-                const data = JSON.parse(dataLine.slice(6))
-                if (data.content) {
-                    lastMessage.content += data.content;
-                }
-                if (data.thread_id) {
-                    currentThreadId.value = data.thread_id
-                }
-            }
-        }
+        // GET 订阅事件流
+        await streamRunEvent(created.run_id,lastMessage)
         await loadConversations()
     } catch (error) {
-        messages.value.push({ role: 'assistant', content: `出错了：${error.message}` })
+        lastMessage.content = `出错了：${error.message}`
     } finally {
         loading.value = false
+        currentRunId.value = null
+        runStatus.value = ''
     }
+}
+
+async function streamRunEvent(runId, lastMessage) {
+    // EventSource 不能带 Authorization 头，仍用 fetch + ReadableStream
+    const reap = await fetch(`/api/agent/runs/${runId}/events`,
+        {
+            headers: { ...userStore.getAuthHeaders() },
+        })
+    const reader = reap.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split('\n\n')    // 按空行切事件，最后一段返回buffer等补全
+        buffer = blocks.pop()           // 最后一行留到下一轮
+
+        for (const block of blocks) {
+            //获取data字段
+            const lines = block.split('\n')
+            const eventLine = lines.find((l) => l.startsWith('event: '))
+            const dataLine = lines.find((l) => l.startsWith('data: '))
+            if (!dataLine) continue;
+            const eventType = eventLine ? eventLine.slice(7) : 'message'    // 'event: '七个字符
+            const data = JSON.parse(dataLine.slice(6))  // 'data: '六个字符
+
+            if (eventType === 'message' && data.content) {
+                lastMessage.content += data.content // 逐token追加
+            } else if (eventType === 'end') {  //收到 end 结束流程
+                if (data.status === 'failed' && data.error) {
+                    lastMessage.content += `\n[失败] ${data.error}`
+                } else if (data.status === 'cancelled') {
+                    lastMessage.content += '\n[已取消]'
+                }
+                return
+            }
+        }
+    }
+}
+
+async function handleCancel() {
+    if (!currentRunId.value) return
+    await apiPost(`/api/agent/runs/${currentRunId.value}/cancel`)
+    runStatus.value = 'cancel_requested'    // 取消中，处理完推 end:cancelled
 }
 
 function handleLogout() {
