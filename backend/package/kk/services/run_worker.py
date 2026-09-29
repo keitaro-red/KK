@@ -1,10 +1,13 @@
 """ARQ worker:离线执行Agent run"""
+import json
 import asyncio
 from dataclasses import dataclass, field
 from arq import create_pool
 from langchain_core.messages import HumanMessage
+from langgraph.types import Command
 from arq.connections import RedisSettings
 from sqlalchemy import select
+from pathlib import Path
 
 from kk.config import config
 from kk.models.agent_run import TERMINAL_RUN_STATUSES
@@ -14,6 +17,8 @@ from kk.storage.postgres.manager import pg_manager
 from kk.storage.redis.manager import close_redis
 from kk.agents.buildin import agent_manager
 from kk.services.run_queue_service import append_run_event, has_cancel_signal, clear_cancel_signal
+from kk.repositories.conversation_repository import ConversationRepository
+
 
 
 # ============================================================
@@ -102,6 +107,17 @@ async def _comsume_stream_with_cancel(agen, run_ctx: RunContext):
 # ============================================================
 # 消费者侧：worker 真正执行 run（ARQ 从队列取到 run_id 后调它）
 # ============================================================
+async def _persist_asistant_message(thread_id: str, content: str)->None:
+    """
+    把 assistant 消息落库
+    (新开session)
+    """
+    if not content.strip():
+        return
+    async with pg_manager.get_session() as db:
+        await ConversationRepository(db).add_message(
+            thread_id,role="assistant",content=content,
+        )
 
 async def process_agent_run(ctx, run_id: str):
     """
@@ -114,15 +130,19 @@ async def process_agent_run(ctx, run_id: str):
         if run is None or run.status in TERMINAL_RUN_STATUSES:
             return
 
-        # 从Message表加载输入正文
-        result = await db.execute(select(Message).where(Message.id == run.input_message_id))
-        input_message = result.scalar_one_or_none()
-        if input_message is None:
-            # 输入消息被删 终态设为 failed
-            await repo.mark_terminal(run_id, "failed", error_message="输入消息不存在")
-            await db.commit()
-            return
-        query = input_message.content
+        query = None
+        if run.run_type == "resume":    # resume 没有输入正文
+            pass
+        else:
+            # 从Message表加载输入正文
+            result = await db.execute(select(Message).where(Message.id == run.input_message_id))
+            input_message = result.scalar_one_or_none()
+            if input_message is None:
+                # 输入消息被删 终态设为 failed
+                await repo.mark_terminal(run_id, "failed", error_message="输入消息不存在")
+                await db.commit()
+                return
+            query = input_message.content
 
         # 状态改为运行
         await repo.mark_running(run_id)
@@ -132,30 +152,75 @@ async def process_agent_run(ctx, run_id: str):
     run_ctx = RunContext(run_id=run_id)
     await run_ctx.start()
 
+    # 模型回复缓冲区(用于最后落库)
+    buffer:list[str]=[]
+
     # 流式执行 Agent
     try:
         agent = agent_manager.get_agent("ChatbotAgent")
-        messages = [HumanMessage(content=query or "")]
+
+        if run.run_type == "resume":
+            decision = json.loads(run.resume_decision or "{}")
+            graph_input = Command(resume=decision)
+        else:
+            graph_input = None
+        
+        messages = [HumanMessage(content=query or "")] if graph_input is None else None
         # 流式生成器交给竞速
         stream = agent.stream_messages_with_state(
             messages,
             input_context={"uid": run.uid, "thread_id": run.thread_id},
+            graph_input=graph_input,
         )
 
         # 竞速消费：正常逐个 yeild token；取消时抛异常
-        async for msg in _comsume_stream_with_cancel(stream, run_ctx):
+        async for msg, metadata in _comsume_stream_with_cancel(stream, run_ctx):
+            # print("[probe]",type(msg).__name__,
+            #       "| type=",getattr(msg,"type",None),
+            #       "| content_type=",type(getattr(msg, "content", None)).__name__,
+            #       "| chunks=",getattr(msg, "tool_call_chunks", None),
+            #       "| tc=" ,getattr(msg, "tool_call", None),
+            #       "| chunks_pos=",getattr(msg, "chunk_position", None),flush=True)
             content = getattr(msg, "content", "")
             if content:
+                buffer.append(content)  # 累积模型回复
                 await append_run_event(run_id, "message", {"content": content})
 
+        # ==============
+        # 流式执行结束 判断是真完成还是挂在中断上
+        interrupts = await agent.get_pending_interrupt(input_context={"uid": run.uid, "thread_id": run.thread_id})
+        if interrupts:
+            # 挂在中断上，终态为 interrupted
+            # 落库模型回复
+            await _persist_asistant_message(run.thread_id, "".join(buffer))
+            await append_run_event(run_id, "interrupt",{"interrupts":[getattr(i,"value",i) for i in interrupts]})
+            await append_run_event(run_id, "end", {"status": "interrupted"})
+            async with pg_manager.get_session() as db:
+                await AgentRunRepository(db).mark_terminal(run_id, "interrupted")
+                await db.commit()
+            return
+
         # 正常完成，终态为 completed
+        # 落库模型回复
+        await _persist_asistant_message(run.thread_id, "".join(buffer))
         await append_run_event(run_id, "end", {"status": "completed"})
         async with pg_manager.get_session() as db:
             await AgentRunRepository(db).mark_terminal(run_id, "completed")
             await db.commit()
 
+    except asyncio.CancelledError as e:
+        # 被取消，终态为 cancelled 
+        # 落库模型回复
+        await _persist_asistant_message(run.thread_id, "".join(buffer))
+        await append_run_event(run_id, "end", {"status": "cancelled"})
+        async with pg_manager.get_session() as db:
+            await AgentRunRepository(db).mark_terminal(run_id, "cancelled")
+            await db.commit()
+
     except Exception as e:
         # 终态失败，终态为 failed 加错误信息
+        # 落库模型回复
+        await _persist_asistant_message(run.thread_id, "".join(buffer))
         await append_run_event(run_id, "end", {"status": "failed", "error": str(e)})
         async with pg_manager.get_session() as db:
             repo = AgentRunRepository(db)
@@ -164,12 +229,13 @@ async def process_agent_run(ctx, run_id: str):
     finally:
         # 无论完成与否，清理取消监听信号
         await run_ctx.close()
-        await clear_cancel_signal()
+        await clear_cancel_signal(run_id)
 
 
 async def _worker_startup(ctx):
     pg_manager.initialize()
     await pg_manager.create_tables()
+    Path(config.WORKSPACE_DIR).mkdir(parents=True, exist_ok=True) # 确保工作目录存在，否则会报错。
 
 
 async def _worker_shutdown(ctx):

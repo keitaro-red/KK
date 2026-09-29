@@ -22,6 +22,8 @@ async def lifespan(app: FastAPI):
     print("KK backend shutting down...")
 
     await pg_manager.close()
-    print("PostgreSQL connection closed")
+    from kk.storage.redis.manager import close_redis
+    await close_redis()
+    print("PostgreSQL/Redis connection closed")
 
     print("KK backend stopped")

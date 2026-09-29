@@ -1,6 +1,7 @@
 """Run 生命周期服务 
 存Message，存Run，消息入队
 """
+import json
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,4 +46,39 @@ async def create_agent_run_view(*,query:str,agent_slug,thread_id:str,current_uid
     await enqueue_run(run_id)
 
     return {"run_id":run_id,"thread_id":thread_id,"status":"pending"}
+
+async def create_resume_run(*,run_id:str,decision:dict,current_uid:str,db:AsyncSession):
+    """
+    从断点恢复run：
+    校验run_id是否存在，新建一个run_type为resume的run，resume_decision为decision（形如{"decisions":[{"type":"approve"}]}）
+    """
+    run_repo = AgentRunRepository(db)
+
+    # 原run存在且属于当前用户
+    origin = await run_repo.get_run_for_user(run_id,current_uid)
+    if origin is None:
+        raise ValueError("运行任务不存在")
+
+    # 校验状态是否为interrupted
+    if origin.status != "interrupted":
+        raise ValueError(f"当前状态不可恢复：{origin.status}")
+
+    # 新建run，继承原run的thread_id和agent_slug
+    new_run_id = str(uuid.uuid4())
+    await run_repo.create_run(
+        run_id=new_run_id,
+        thread_id=origin.thread_id,
+        uid=current_uid,
+        agent_slug=origin.agent_slug,
+        input_message_id=None,
+        run_type="resume",
+        resume_decision=json.dumps(decision,ensure_ascii=False),
+    )
+    await db.commit()
+
+    # 入队
+    await enqueue_run(new_run_id)
+
+    return {"run_id":new_run_id,"thread_id":origin.thread_id,"status":"pending"}
+
 

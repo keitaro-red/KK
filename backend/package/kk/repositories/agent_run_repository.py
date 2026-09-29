@@ -11,7 +11,8 @@ class AgentRunRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_run(self, run_id, thread_id, uid, agent_slug, input_message_id) -> AgentRun:
+    async def create_run(self, run_id, thread_id, uid, agent_slug, 
+                         input_message_id=None,run_type="chat",resume_decision=None) -> AgentRun:
         """创建run进程信息，保存到数据库"""
         run = AgentRun(
             id=run_id,
@@ -19,6 +20,8 @@ class AgentRunRepository:
             uid=uid,
             agent_slug=agent_slug,
             input_message_id=input_message_id,      # 替换query
+            run_type=run_type,
+            resume_decision=resume_decision,
             status="pending",
         )
         self.db.add(run)

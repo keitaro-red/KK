@@ -1,0 +1,28 @@
+/* 全局重置 */
+/* box-sizing 保留全局 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+
+body,
+h1,h2,h3,h4,
+p,pre,
+ul,ol{
+    margin: 0;
+    padding: 0;
+}
+
+ul,ol{
+    list-style: none;
+}
+
+/* 字体 */
+body{
+    font-family: system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #2c3e50
+}

@@ -95,7 +95,13 @@ async def stream_llm(
 
     # 解析thread_id
     thread_id=data.thread_id
-    if not thread_id:
+    if thread_id:
+        # 校验归属
+        conversation = await repo.get_conversation_by_thread_id(thread_id)
+        if not conversation or conversation.uid !=user.uid:
+            raise HTTPException(status_code=404,detail="对话不存在")
+    else:
+        # 创建新对话
         conversation = await repo.create_conversation(uid=user.uid)
         thread_id=conversation.thread_id
 

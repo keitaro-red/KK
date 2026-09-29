@@ -13,7 +13,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True,)
-    username = Column(String(50), nullable=False)  # 用户名
+    username = Column(String(50), unique=True, index=True, nullable=False)  # 用户名
     uid = Column(String(64), nullable=False, unique=True, index=True)  # uid
     password_hash = Column(String(255), nullable=False)  # 密码哈希
     role = Column(String(20), nullable=False, default="user")  # user/admin

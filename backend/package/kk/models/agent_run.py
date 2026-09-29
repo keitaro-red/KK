@@ -26,8 +26,9 @@ class AgentRun(Base):
                     comment="pending/running/completed/failed")
     error_type = Column(String(64), nullable=True, comment="错误类型")
     error_message = Column(Text, nullable=True, comment="错误详情")
-    created_at = Column(DateTime, default=datetime.utcnow())
+    resume_decision = Column(Text, nullable=True, comment="resume决策详情(JSON格式字符串):{\"decisions\":[{\"type\":\"approve\"}]}")
+    created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True, comment="开始执行时间")
     finished_at = Column(DateTime, nullable=True, comment="结束时间")
-    updated_at = Column(DateTime, default=datetime.utcnow(),
-                        onupdate=datetime.utcnow())
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)

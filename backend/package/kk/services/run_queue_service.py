@@ -69,4 +69,4 @@ async def has_cancel_signal(run_id: str) -> bool:
 async def clear_cancel_signal(run_id: str) -> None:
     """清除取消信号"""
     redis = await get_redis()
-    return redis.delete(_cancel_key(run_id))
+    await redis.delete(_cancel_key(run_id))

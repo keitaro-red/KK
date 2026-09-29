@@ -1,0 +1,25 @@
+/* KK 设计变量 */
+:root {
+    --kk-primary: #e3d894;          /* 主色 */
+    --kk-primary-hover: #f5ecb7;    /* 主色 hover */
+    --kk-primary-dark: #afa670;      /* 主色 dark */
+    --kk-bg-sidebar: #455370;       /* 侧边栏背景 */
+    --kk-bg-header: #3a3d62;        /* 头部背景 */
+    --kk-bg-page: #faf5ed;          /* 聊天页面背景 */
+    --kk-border: #cdd2ad;           /* 边框 */
+    --kk-bubble-user: #f27b3b44;        /* 用户气泡 */
+    --kk-bubble-assistant: #ef979255;   /* 助手气泡 */
+
+    --kk-radius: 6px;           /* 圆角 */
+    --kk-radius-lg: 10px;       /* 大圆角 */
+
+    /* 覆盖 Element Plus 主题 */
+    --el-color-primary:        var(--kk-primary-dark);
+    --el-color-primary-light-3: #ded49f;    /* 按钮hover */
+    --el-color-primary-light-5: #e7dfb8;    /* 禁用状态 */
+    --el-color-primary-light-7: #efe9cf;    /* 浅色背景 */
+    --el-color-primary-light-8: #f3efe0;    /* 浅色背景 */
+    --el-color-primary-light-9: #f7f4ea;    /* 按钮边框 */
+    --el-color-primary-dark-2:  #a8a16e;    /* 按下状态 */
+    --el-border-radius-base:    var(--kk-radius);
+}

@@ -45,6 +45,7 @@ class PostgresManager:
         """创建所有表结构 根据Model定义自动执行CREATE TABLE"""
         from kk.models.user import Base
         from kk.models import conversation
+        from kk.models import agent_run,conversation
 
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

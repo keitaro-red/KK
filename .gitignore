@@ -22,3 +22,7 @@ chat-backgound*
 .DS_Store
 Thumbs.db
 *.log
+
+# 工程
+docs/DECISIONS.md
+docs/ARCHITECTURE.md
